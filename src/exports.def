@@ -1,0 +1,5 @@
+LIBRARY sensapi
+EXPORTS
+	IsDestinationReachableA = Proxy_IsDestinationReachableA @1
+	IsDestinationReachableW = Proxy_IsDestinationReachableW @2
+	IsNetworkAlive          = Proxy_IsNetworkAlive          @3

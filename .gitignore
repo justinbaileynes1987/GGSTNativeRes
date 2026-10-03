@@ -1,0 +1,9 @@
+build/
+*.obj
+*.exp
+*.lib
+*.pdb
+# Memory dumps contain the game's code - never commit them
+*.exe
+*.log
+__pycache__/

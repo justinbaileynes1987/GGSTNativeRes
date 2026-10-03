@@ -75,6 +75,8 @@ struct Settings {
 	int width = 0, height = 0;  // 0 = desktop resolution
 	int mode = -1;              // -1 = whatever the game last saved, 0 fullscreen, 1 borderless, 2 windowed
 	bool log = true;
+	bool fixBootDefault = true;    // fix 1 (game's boot-time 1920x1080 Fullscreen default)
+	bool fixFullscreenCap = true;  // fix 2 (UE4's EDID-based Fullscreen resolution cap)
 };
 
 static std::wstring ConfigPath() { return std::wstring(g_dir) + L"\\GGSTNativeRes.ini"; }
@@ -92,11 +94,26 @@ static void WriteDefaultConfig()
 		";                          0 = Fullscreen, 1 = Borderless, 2 = Windowed\r\n"
 		"Mode=-1\r\n"
 		"; Write GGSTNativeRes.log next to this file (1 = yes, 0 = no)\r\n"
-		"Log=1\r\n";
+		"Log=1\r\n"
+		"; Turn the individual fixes on/off (1/0), e.g. to compare against the stock game.\r\n"
+		"; FixBootDefault:   the game's own boot-time default of 1920x1080 Fullscreen\r\n"
+		"; FixFullscreenCap: Unreal Engine capping Fullscreen at the monitor's EDID 'native' size\r\n"
+		"FixBootDefault=1\r\n"
+		"FixFullscreenCap=1\r\n";
 	HANDLE f = CreateFileW(ConfigPath().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (f == INVALID_HANDLE_VALUE) return;
 	DWORD n; WriteFile(f, text, (DWORD)strlen(text), &n, nullptr);
 	CloseHandle(f);
+}
+
+// GetPrivateProfileIntW is documented to return 0 for negative values, so parse the string ourselves.
+static int ReadInt(const std::wstring& ini, const wchar_t* key, int def)
+{
+	wchar_t buf[32];
+	GetPrivateProfileStringW(L"Settings", key, L"", buf, 32, ini.c_str());
+	wchar_t* end;
+	long v = wcstol(buf, &end, 10);
+	return end == buf ? def : (int)v;
 }
 
 static Settings LoadSettings()
@@ -104,10 +121,12 @@ static Settings LoadSettings()
 	WriteDefaultConfig();  // no-op if it already exists
 	Settings s;
 	auto ini = ConfigPath();
-	s.width  = GetPrivateProfileIntW(L"Settings", L"Width", 0, ini.c_str());
-	s.height = GetPrivateProfileIntW(L"Settings", L"Height", 0, ini.c_str());
-	s.mode   = GetPrivateProfileIntW(L"Settings", L"Mode", -1, ini.c_str());
-	s.log    = GetPrivateProfileIntW(L"Settings", L"Log", 1, ini.c_str()) != 0;
+	s.width            = ReadInt(ini, L"Width", 0);
+	s.height           = ReadInt(ini, L"Height", 0);
+	s.mode             = ReadInt(ini, L"Mode", -1);
+	s.log              = ReadInt(ini, L"Log", 1) != 0;
+	s.fixBootDefault   = ReadInt(ini, L"FixBootDefault", 1) != 0;
+	s.fixFullscreenCap = ReadInt(ini, L"FixFullscreenCap", 1) != 0;
 	return s;
 }
 
@@ -315,9 +334,16 @@ static DWORD WINAPI PatchThread(LPVOID)
 	uint8_t* text; size_t textSize;
 	if (!TextSection(text, textSize)) { Log("No .text section - not patching."); return 0; }
 
+	const bool wantFix1 = s.fixBootDefault && haveTarget, wantFix2 = s.fixFullscreenCap;
+	if (!s.fixBootDefault) Log("Boot default fix disabled in GGSTNativeRes.ini.");
+	if (!s.fixFullscreenCap) Log("Fullscreen cap fix disabled in GGSTNativeRes.ini.");
+
 	// The exe is wrapped in SteamStub, which decrypts .text at startup - we're loaded before that, and
-	// later parts of .text can appear after earlier ones. Keep scanning until every pattern has
-	// appeared (or we give up), then apply each fix independently.
+	// later parts of .text can appear after earlier ones. Keep scanning until the patterns we need
+	// have appeared, then apply each fix independently. The game's boot-time resolution code runs
+	// ~2 s after launch, so waiting much longer is pointless: give up after 10 s overall, or 2 s
+	// after the first pattern appeared (decryption is clearly under way by then), and back off to a
+	// slow poll after 3 s so a game update that breaks a pattern can't keep a core busy.
 	// Other mods (e.g. UE4SS) do heavy work at the same moment; don't let them starve this thread.
 	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
 	const Pattern pre = Parse(kPrecheck), loop = Parse(kLoop), store = Parse(kModeStore), cap = Parse(kNativeCap);
@@ -327,26 +353,31 @@ static DWORD WINAPI PatchThread(LPVOID)
 	QueryPerformanceCounter(&t0);
 	std::vector<uint8_t*> a, b, c, d;
 	int passes = 0;
-	double scanCost = 0;
+	double scanCost = 0, firstSeen = -1;
 	for (;;) {
 		QueryPerformanceCounter(&t1);
-		if (a.empty()) a = FindAll(text, textSize, loop);
-		if (d.empty()) d = FindAll(text, textSize, cap);
+		if (wantFix1 && a.empty()) a = FindAll(text, textSize, loop);
+		if (wantFix2 && d.empty()) d = FindAll(text, textSize, cap);
 		scanCost += ms(t1); ++passes;
-		if ((!a.empty() && !d.empty()) || ms(t0) > 30000) break;
-		Sleep(1);
+		const double now = ms(t0);
+		if (firstSeen < 0 && (!a.empty() || !d.empty())) firstSeen = now;
+		const bool done = (!wantFix1 || !a.empty()) && (!wantFix2 || !d.empty());
+		if (done || now > 10000 || (firstSeen >= 0 && now - firstSeen > 2000)) break;
+		Sleep(now < 3000 ? 1 : 100);
 	}
 	const double waited = ms(t0);
 	QueryPerformanceCounter(&t1);
-	b = FindAll(text, textSize, pre);
-	c = FindAll(text, textSize, store);
+	if (wantFix1) {
+		b = FindAll(text, textSize, pre);
+		c = FindAll(text, textSize, store);
+	}
 	const double verify = ms(t1);
 	Log("Scan: code ready after %.0f ms (%d passes, %.1f ms/pass), verify %.1f ms - precheck=%zu loop=%zu modestore=%zu nativecap=%zu",
-	    waited, passes, scanCost / passes, verify, b.size(), a.size(), c.size(), d.size());
+	    waited, passes, passes ? scanCost / passes : 0.0, verify, b.size(), a.size(), c.size(), d.size());
 
 	// Fix 1. Safety: each pattern must match exactly once, in the order precheck < loop < modestore,
 	// all within one small function. Anything else means the game changed - leave it alone.
-	if (!haveTarget) {}
+	if (!wantFix1) {}
 	else if (a.size() != 1 || b.size() != 1 || c.size() != 1)
 		Log("Boot default: unexpected match count - game updated? Not patched.");
 	else if (uint8_t *p = b[0], *l = a[0], *m = c[0]; !(p < l && l < m && m - p < 0x80))
@@ -361,7 +392,8 @@ static DWORD WINAPI PatchThread(LPVOID)
 	}
 
 	// Fix 2.
-	if (d.size() != 1 || d[0][kNativeCapJumpOffset] != 0x75)
+	if (!wantFix2) {}
+	else if (d.size() != 1 || d[0][kNativeCapJumpOffset] != 0x75)
 		Log("Fullscreen native-size cap: unexpected match - game updated? Not patched.");
 	else {
 		Write<uint8_t>(d[0] + kNativeCapJumpOffset, 0xEB);  // jne -> jmp

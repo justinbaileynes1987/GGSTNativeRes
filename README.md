@@ -13,8 +13,10 @@ Strive ignores your settings for the first few seconds after launch:
 3. Several seconds later it loads your settings from `SYSTEM.sav` and switches **again** to your real
    resolution and window mode.
 
-None of the usual fixes work. The game overrides `GameUserSettings.ini` (read-only or not),
-`-ResX/-ResY` launch options and the in-game display mode at boot, and `SYSTEM.sav` is encrypted.
+None of the usual fixes work. The engine already reads `GameUserSettings.ini` correctly, so editing
+it (or making it read-only) can't help; `-ResX/-ResY` launch options and picking Borderless in the
+game's options don't stop it either; and `SYSTEM.sav` can't be edited (it has no standard Unreal
+save header and its contents look random, i.e. it's encrypted or otherwise obfuscated).
 
 With this mod the game starts in your real resolution and window mode, and nothing switches.
 
@@ -49,33 +51,46 @@ Width=0     ; 0 = your monitor's current desktop resolution
 Height=0
 Mode=-1     ; -1 = same as your in-game setting, 0 = Fullscreen, 1 = Borderless, 2 = Windowed
 Log=1       ; write GGSTNativeRes.log
+FixBootDefault=1    ; fix 1 below (1 = on, 0 = off)
+FixFullscreenCap=1  ; fix 2 below (1 = on, 0 = off)
 ```
 
 The defaults are right for most people: your desktop resolution, and whichever window mode you
-picked in the game's options.
+picked in the game's options. The two `Fix...` switches let you turn each fix off individually,
+for example to compare against the stock game (see [VERIFICATION.md](VERIFICATION.md)).
 
 ## How it works
 
-There are actually **two** separate causes of the 1080p switch, and the mod fixes both.
+There are actually **two** separate causes of the 1080p switch, and the mod fixes both. Every
+claim in this section is backed by evidence you can check yourself in
+[VERIFICATION.md](VERIFICATION.md).
 
-**1. Strive's own boot-time default.** Your display settings are saved in `SYSTEM.sav` as an
-*index* into the list of display modes your monitor supports, together with a fingerprint of that
-list. Every time the settings are applied, the game checks the fingerprint. If it doesn't match,
-for example because the monitor changed and the saved index might now point at the wrong mode,
-the game resets to a safe default: **1920×1080**, window mode **Fullscreen**. The bug is that at
-boot this check runs *before* the save has loaded, so it always fails and you always get the
-default for the first few seconds. (The same reset happens whenever your monitor's mode list
-changes.) The mod replaces the default's width, height and window mode with yours.
+**1. Strive's own boot-time default.** The game stores your display setting as an *index* into
+the list of display modes your monitor supports, together with a fingerprint of that list. Every
+time the settings are applied, the game checks the fingerprint. If it doesn't match, for example
+because the monitor changed and the saved index might now point at the wrong mode, the game resets
+to a default: **1920×1080** (or the largest mode, if the monitor can't do 1080p), window mode
+**Fullscreen**. At boot this check runs *before* your save has loaded, so it always fails and you
+always get the default for the first few seconds. The mod replaces the default's width, height and
+window mode with yours. (Reading the code, the same reset should also happen whenever your
+monitor's mode list changes, e.g. after a driver update; that part hasn't been tested.)
 
 **2. An Unreal Engine 4 quirk with some monitors.** Before the game's own code runs, the engine
-reads `GameUserSettings.ini` and applies it. In exclusive Fullscreen it first caps the resolution
-at what it thinks your monitor's *native* resolution is, and it gets that from the first "detailed
-timing" entry in the monitor's EDID (the identity data every monitor reports). Many newer monitors,
-especially high-refresh OLEDs and HDMI 2.1 models, list a **1920×1080** compatibility mode there and
-put their real resolution in an extension block. So UE4 decides your 1440p or 4K monitor is a 1080p
-monitor. The mod makes exclusive Fullscreen use your desktop size as the cap instead, which is what
-Borderless and Windowed already do. (UE4's `-ForceRes` launch option also gets around this one, but
-it doesn't help with cause 1.)
+reads `GameUserSettings.ini` and applies it. In exclusive Fullscreen only, it caps the resolution
+at what it thinks your monitor's *native* resolution is, and it gets that from the **first
+detailed timing descriptor** in the monitor's EDID (the identity data every monitor reports).
+Some monitors put a 1920×1080 mode in that slot even though they're 1440p or 4K. The ASUS
+XG27AQDMG this mod was developed on lists 1920×1080 @ 240 Hz there, and its real 2560×1440 @ 240 Hz
+mode only appears in an extension block. So UE4 decides it's a 1080p monitor. Run
+[`tools/check_edid.py`](tools/check_edid.py) to see what UE4 reads from yours. The mod makes
+exclusive Fullscreen use your desktop size as the cap instead, which is what Borderless and
+Windowed already do. (UE4's `-ForceRes` launch option also gets around this one, but it doesn't
+help with cause 1.)
+
+*Side effect of fix 2:* at boot, exclusive Fullscreen can no longer start at a resolution *above*
+your desktop resolution (e.g. a 4K TV used with a 1080p desktop). The game's own settings are
+applied a few seconds later as normal, so you'd just see one switch at boot, like without the mod.
+If that's your setup, set `FixFullscreenCap=0`.
 
 What the mod does and doesn't do:
 
@@ -85,13 +100,17 @@ What the mod does and doesn't do:
 - **Fails safe.** It searches for the exact code it expects and applies each fix only if its patterns
   are found exactly once, in the expected layout. If a game update changes that code, that fix is
   skipped and the game behaves as stock. `GGSTNativeRes.log` says what was and wasn't patched.
+  (These checks confirm the code looks the same, not that it still means the same thing. An update
+  that kept these exact bytes but changed their purpose would be extremely unlikely, but it isn't
+  impossible.)
 - **Only runs inside Strive.** It does nothing if loaded by any other program.
 
 It loads as a proxy for `xapofx1_5.dll`, a DirectX audio-effects DLL the game imports. The game
 loads DLLs from its own folder first, and the mod passes the DLL's single function, `CreateFX`,
 through to the real copy in `System32`.
 
-Strive has no anti-cheat (no EasyAntiCheat, BattlEye or kernel driver).
+Strive has no client-side anti-cheat that we could find: no EasyAntiCheat, BattlEye or kernel
+driver in the install folder or loaded in the game. What its servers check is unknown.
 
 ### Compatibility with other mods
 

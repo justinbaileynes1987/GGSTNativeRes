@@ -62,8 +62,20 @@ first DTD width = `e[56] | (e[58] >> 4) << 8`, height = `e[59] | (e[61] >> 4) <<
 
 `.text` is decrypted progressively at startup: patterns early in the exe can show up before
 later ones (RequestResolutionChange appeared ~100 ms after the boot-default code). The patch thread
-keeps scanning until every pattern it needs has appeared. Measured margin on the dev machine:
-patches land ~1 s before the engine's preload runs.
+keeps scanning until every pattern it needs has appeared.
+
+Timing, dev machine, StriveLabs (UE4SS) installed, 3 diag runs:
+
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| waiting for SteamStub to decrypt | 825 ms | 747 ms | 812 ms |
+| one full scan pass (BMH, 57 MB) | 30 ms | 31 ms | 29 ms |
+| patch → engine PreloadResolutionSettings | 982 ms | 998 ms | 925 ms |
+
+The wait is dominated by decryption, not by scanning: once the code exists we patch within one
+pass. The remaining ~1 s is the engine's own startup between decryption and the preload, so it
+scales with machine speed rather than being a fixed deadline. (The old memchr-on-first-byte scanner
+measured ~1.6 s total on a first UE4SS launch; per-pass cost wasn't logged then.)
 
 ## Loader DLL name
 

@@ -20,7 +20,9 @@
 // own sensapi.dll loader into the same folder.)
 
 #include <windows.h>
+#include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <cstdio>
 #include <cwchar>
 #include <share.h>
@@ -122,7 +124,15 @@ static std::optional<int> GameSavedWindowMode()
 // ---------------------------------------------------------------------------------------------
 // Pattern scanning / patching
 // ---------------------------------------------------------------------------------------------
-struct Pattern { std::vector<int> bytes; };  // -1 = wildcard
+// A byte pattern (-1 = wildcard). Searching uses Boyer-Moore-Horspool on the pattern's longest run
+// of fixed bytes (the "anchor"), which skips through memory in jumps of up to the anchor's length
+// instead of stopping at every occurrence of a common first byte; each anchor hit is then checked
+// against the full pattern.
+struct Pattern {
+	std::vector<int> bytes;
+	std::vector<uint8_t> anchor;
+	size_t anchorOffset = 0;
+};
 
 static Pattern Parse(const char* sig)
 {
@@ -132,6 +142,16 @@ static Pattern Parse(const char* sig)
 		if (*c == '?') { p.bytes.push_back(-1); while (*c == '?') ++c; continue; }
 		p.bytes.push_back((int)strtoul(c, const_cast<char**>(&c), 16));
 	}
+	for (size_t i = 0; i < p.bytes.size();) {
+		size_t j = i;
+		while (j < p.bytes.size() && p.bytes[j] >= 0) ++j;
+		if (j - i > p.anchor.size()) {
+			p.anchor.clear();
+			for (size_t k = i; k < j; ++k) p.anchor.push_back(static_cast<uint8_t>(p.bytes[k]));
+			p.anchorOffset = i;
+		}
+		i = j + 1;
+	}
 	return p;
 }
 
@@ -140,14 +160,19 @@ static std::vector<uint8_t*> FindAll(uint8_t* begin, size_t size, const Pattern&
 {
 	std::vector<uint8_t*> hits;
 	const size_t n = p.bytes.size();
-	const uint8_t first = (uint8_t)p.bytes[0];  // our patterns never start with a wildcard
-	for (uint8_t* cur = begin, *end = begin + size - n; cur <= end;) {
-		cur = (uint8_t*)memchr(cur, first, end - cur + 1);
-		if (!cur) break;
-		size_t j = 1;
-		while (j < n && (p.bytes[j] < 0 || cur[j] == (uint8_t)p.bytes[j])) ++j;
-		if (j == n) hits.push_back(cur);
-		++cur;
+	if (p.anchor.empty() || size < n) return hits;
+	uint8_t* const end = begin + size;
+	const std::boyer_moore_horspool_searcher search(p.anchor.begin(), p.anchor.end());
+	for (uint8_t* cur = begin;;) {
+		uint8_t* a = std::search(cur, end, search);
+		if (a == end) break;
+		uint8_t* m = a - p.anchorOffset;
+		if (m >= begin && m + n <= end) {
+			size_t j = 0;
+			while (j < n && (p.bytes[j] < 0 || m[j] == (uint8_t)p.bytes[j])) ++j;
+			if (j == n) hits.push_back(m);
+		}
+		cur = a + 1;
 	}
 	return hits;
 }
@@ -293,19 +318,31 @@ static DWORD WINAPI PatchThread(LPVOID)
 	// The exe is wrapped in SteamStub, which decrypts .text at startup - we're loaded before that, and
 	// later parts of .text can appear after earlier ones. Keep scanning until every pattern has
 	// appeared (or we give up), then apply each fix independently.
+	// Other mods (e.g. UE4SS) do heavy work at the same moment; don't let them starve this thread.
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
 	const Pattern pre = Parse(kPrecheck), loop = Parse(kLoop), store = Parse(kModeStore), cap = Parse(kNativeCap);
-	const DWORD start = GetTickCount();
+	LARGE_INTEGER freq, t0, t1;
+	QueryPerformanceFrequency(&freq);
+	auto ms = [&](LARGE_INTEGER from) { LARGE_INTEGER now; QueryPerformanceCounter(&now); return double(now.QuadPart - from.QuadPart) * 1000.0 / freq.QuadPart; };
+	QueryPerformanceCounter(&t0);
 	std::vector<uint8_t*> a, b, c, d;
+	int passes = 0;
+	double scanCost = 0;
 	for (;;) {
+		QueryPerformanceCounter(&t1);
 		if (a.empty()) a = FindAll(text, textSize, loop);
 		if (d.empty()) d = FindAll(text, textSize, cap);
-		if ((!a.empty() && !d.empty()) || GetTickCount() - start > 30000) break;
+		scanCost += ms(t1); ++passes;
+		if ((!a.empty() && !d.empty()) || ms(t0) > 30000) break;
 		Sleep(1);
 	}
+	const double waited = ms(t0);
+	QueryPerformanceCounter(&t1);
 	b = FindAll(text, textSize, pre);
 	c = FindAll(text, textSize, store);
-	Log("Scan took %lu ms: precheck=%zu loop=%zu modestore=%zu nativecap=%zu",
-	    GetTickCount() - start, b.size(), a.size(), c.size(), d.size());
+	const double verify = ms(t1);
+	Log("Scan: code ready after %.0f ms (%d passes, %.1f ms/pass), verify %.1f ms - precheck=%zu loop=%zu modestore=%zu nativecap=%zu",
+	    waited, passes, scanCost / passes, verify, b.size(), a.size(), c.size(), d.size());
 
 	// Fix 1. Safety: each pattern must match exactly once, in the order precheck < loop < modestore,
 	// all within one small function. Anything else means the game changed - leave it alone.
@@ -330,6 +367,7 @@ static DWORD WINAPI PatchThread(LPVOID)
 		Write<uint8_t>(d[0] + kNativeCapJumpOffset, 0xEB);  // jne -> jmp
 		Log("Patched fullscreen native-size cap: uses desktop size instead of monitor EDID");
 	}
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
 #ifdef GGSTNR_DIAG
 	InstallDiagHook(text, textSize);
 	return 0;  // keep the log open for the hook and display watcher

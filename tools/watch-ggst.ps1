@@ -1,4 +1,5 @@
-param([string]$LaunchArgs = "", [int]$Seconds = 60, [string]$Out = "", [switch]$Enforce, [int]$PollMs = 200)
+param([string]$LaunchArgs = "", [int]$Seconds = 60, [string]$Out = "", [switch]$Enforce, [int]$PollMs = 200,
+      [string]$AppId = "1384160", [string]$ProcessName = "GGST-Win64-Shipping")  # defaults: Strive; Xrd Rev 2 = 520440 / GuiltyGearXrd
 
 Add-Type @"
 using System;
@@ -29,10 +30,10 @@ function Mode {
   "$($dm.dmPelsWidth)x$($dm.dmPelsHeight)@$($dm.dmDisplayFrequency)"
 }
 
-Start-Process "C:\Program Files (x86)\Steam\steam.exe" -ArgumentList (@("-applaunch","1384160") + ($LaunchArgs -split ' ' | Where-Object { $_ }))
+Start-Process "C:\Program Files (x86)\Steam\steam.exe" -ArgumentList (@("-applaunch",$AppId) + ($LaunchArgs -split ' ' | Where-Object { $_ }))
 $t0 = Get-Date; $last = ""; $log = @()
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
-  $p = Get-Process GGST-Win64-Shipping -ErrorAction SilentlyContinue | Select-Object -First 1
+  $p = Get-Process $ProcessName -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($p -and $p.MainWindowHandle -ne 0) {
     $r = New-Object W+RECT; $c = New-Object W+RECT
     [void][W]::GetWindowRect($p.MainWindowHandle, [ref]$r); [void][W]::GetClientRect($p.MainWindowHandle, [ref]$c)

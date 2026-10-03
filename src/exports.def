@@ -1,5 +1,3 @@
-LIBRARY sensapi
+LIBRARY xapofx1_5
 EXPORTS
-	IsDestinationReachableA = Proxy_IsDestinationReachableA @1
-	IsDestinationReachableW = Proxy_IsDestinationReachableW @2
-	IsNetworkAlive          = Proxy_IsNetworkAlive          @3
+	CreateFX = Proxy_CreateFX @1

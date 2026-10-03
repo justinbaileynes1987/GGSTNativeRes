@@ -107,6 +107,9 @@ same name overwrite each other. Names used by popular Strive mods:
 
 GGSTNativeRes doesn't hook anything, so it shouldn't interfere with mods that do.
 
+**Tested together:** StriveLabs v2-47 (UE4SS) on Windows. Both load, StriveLabs starts normally, and
+the resolution fixes still apply before the engine's boot-time resolution code runs.
+
 ## Building
 
 Requires Visual Studio 2022 or newer with the **Desktop development with C++** workload.

@@ -39,8 +39,7 @@ With this mod the game starts in your real resolution and window mode, and nothi
 
 ## Install
 
-1. Download `GGSTNativeRes-<version>.zip` from the [Releases](../../releases) page. Only download
-   it from there, and check its SHA-256 hash against the one listed on the release.
+1. Download `GGSTNativeRes-<version>.zip` from the [Releases](../../releases) page. also available on gamebanana: https://gamebanana.com/mods/723773, and check its SHA-256 hash against the one listed on the release.
 2. Put `xapofx1_5.dll` from the zip in the folder that contains `GGST-Win64-Shipping.exe`:
    ```
    ...\steamapps\common\GUILTY GEAR STRIVE\RED\Binaries\Win64\

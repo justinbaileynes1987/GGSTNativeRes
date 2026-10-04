@@ -30,7 +30,8 @@ function Mode {
   "$($dm.dmPelsWidth)x$($dm.dmPelsHeight)@$($dm.dmDisplayFrequency)"
 }
 
-Start-Process "C:\Program Files (x86)\Steam\steam.exe" -ArgumentList (@("-applaunch",$AppId) + ($LaunchArgs -split ' ' | Where-Object { $_ }))
+. "$PSScriptRoot\steam-paths.ps1"
+Start-Process (Get-SteamExe) -ArgumentList (@("-applaunch",$AppId) + ($LaunchArgs -split ' ' | Where-Object { $_ }))
 $t0 = Get-Date; $last = ""; $log = @()
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
   $p = Get-Process $ProcessName -ErrorAction SilentlyContinue | Select-Object -First 1

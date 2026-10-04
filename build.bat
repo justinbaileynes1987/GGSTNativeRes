@@ -10,6 +10,8 @@ cd /d "%~dp0"
 set "OUT=build" & set "DEFS="
 if /i "%~1"=="diag" (set "OUT=build\diag" & set "DEFS=/DGGSTNR_DIAG")
 if not exist %OUT% mkdir %OUT%
-cl /nologo /O2 /MT /W4 /EHsc /std:c++17 /LD %DEFS% src\main.cpp /Fo:%OUT%\ /Fe:%OUT%\xapofx1_5.dll ^
-   /link /DEF:src\exports.def user32.lib || exit /b 1
+rc /nologo /fo %OUT%\version.res src\version.rc || exit /b 1
+rem /Brepro: deterministic output (no timestamps), so anyone can rebuild and compare the hash
+cl /nologo /O2 /MT /W4 /EHsc /std:c++17 /LD /Brepro %DEFS% src\main.cpp %OUT%\version.res /Fo:%OUT%\ /Fe:%OUT%\xapofx1_5.dll ^
+   /link /Brepro /DEF:src\exports.def user32.lib || exit /b 1
 echo Built %OUT%\xapofx1_5.dll

@@ -12,10 +12,13 @@ param(
 	[int]$FixFullscreenCap = 1,
 	[string]$ExtraArgs = "",
 	[int]$Seconds = 30,
-	[string]$GameDir = "E:\SteamLibrary\steamapps\common\GUILTY GEAR STRIVE",
-	[string]$Steam = "C:\Program Files (x86)\Steam\steam.exe",
+	[string]$GameDir = "",   # default: found automatically via Steam
+	[string]$Steam = "",     # default: found automatically via the registry
 	[switch]$KeepRunning  # leave the game open afterwards (e.g. to run dump.py)
 )
+. "$PSScriptRoot\steam-paths.ps1"
+if (-not $GameDir) { $GameDir = Get-SteamGameDir "GUILTY GEAR STRIVE" }
+if (-not $Steam) { $Steam = Get-SteamExe }
 $bin = Join-Path $GameDir "RED\Binaries\Win64"
 $ini = Join-Path $bin "GGSTNativeRes.ini"
 Get-Process GGST-Win64-Shipping -ErrorAction SilentlyContinue | Stop-Process

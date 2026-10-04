@@ -22,8 +22,9 @@ With this mod the game starts in your real resolution and window mode, and nothi
 
 ## Install
 
-1. Download `xapofx1_5.dll` from the [Releases](../../releases) page.
-2. Put it in the folder that contains `GGST-Win64-Shipping.exe`:
+1. Download `GGSTNativeRes-<version>.zip` from the [Releases](../../releases) page. Only download
+   it from there, and check its SHA-256 hash against the one listed on the release.
+2. Put `xapofx1_5.dll` from the zip in the folder that contains `GGST-Win64-Shipping.exe`:
    ```
    ...\steamapps\common\GUILTY GEAR STRIVE\RED\Binaries\Win64\
    ```
@@ -144,6 +145,15 @@ Requires Visual Studio 2022 or newer with the **Desktop development with C++** w
 build.bat          release build   -> build\xapofx1_5.dll
 build.bat diag     diagnostic build -> build\diag\xapofx1_5.dll
 ```
+
+`release.ps1` builds the release and packages `dist\GGSTNativeRes-<version>.zip` plus
+`dist\SHA256SUMS.txt`.
+
+**Reproducible builds:** the build uses `/Brepro`, so the same source and compiler always produce a
+byte-identical DLL. To check that a release DLL was built from this source, check out the release's
+tag, run `build.bat` with the same MSVC toolset (listed in the release notes), and compare the
+SHA-256 of `build\xapofx1_5.dll` with the published one. A different compiler version will produce
+a different (but equivalent) binary.
 
 The diagnostic build also logs every resolution change the game requests (with the calling
 address) and every display-mode change, on one timeline. It's meant for development and adds a

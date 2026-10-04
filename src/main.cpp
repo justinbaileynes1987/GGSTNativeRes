@@ -20,6 +20,7 @@
 // own sensapi.dll loader into the same folder.)
 
 #include <windows.h>
+#include "version.h"
 #include <algorithm>
 #include <cstdint>
 #include <functional>
@@ -312,7 +313,7 @@ static DWORD WINAPI PatchThread(LPVOID)
 		std::wstring logPath = std::wstring(g_dir) + L"\\GGSTNativeRes.log";
 		g_log = _wfsopen(logPath.c_str(), L"w", _SH_DENYNO);  // shared, so it can be read while the game runs
 	}
-	Log("GGSTNativeRes loaded");
+	Log("GGSTNativeRes " GGSTNR_VERSION_STRING " loaded");
 #ifdef GGSTNR_DIAG
 	if (HANDLE t = CreateThread(nullptr, 0, DisplayWatchThread, nullptr, 0, nullptr)) CloseHandle(t);
 #endif

@@ -26,7 +26,8 @@ CHECK THAT IT WORKED
 
 Source, documentation and how it works:
   https://github.com/justinbaileynes1987/GGSTNativeRes
-Only download this mod from the GitHub Releases page above, and check the
-SHA-256 hash listed there.
+Only download this mod from the GitHub Releases page above or its official
+GameBanana page (https://gamebanana.com/mods/723773), and check the SHA-256
+hash listed on the GitHub release.
 
 MIT License - see LICENSE.txt. Not affiliated with Arc System Works.

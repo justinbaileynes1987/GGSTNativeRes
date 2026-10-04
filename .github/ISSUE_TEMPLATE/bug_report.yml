@@ -1,0 +1,55 @@
+name: Bug report
+description: The mod didn't fix the 1080p switch, or something else went wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! The log file tells us almost everything, so please include it.
+  - type: textarea
+    id: log
+    attributes:
+      label: GGSTNativeRes.log
+      description: |
+        In the game's `RED\Binaries\Win64` folder (next to `xapofx1_5.dll`). Paste the whole file.
+        If there's no log file, the mod didn't load. Say so here.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you see at launch, and what did you expect?
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Resolution, refresh rate and in-game display mode
+      placeholder: e.g. 2560x1440 @ 165 Hz, Fullscreen
+    validations:
+      required: true
+  - type: input
+    id: monitor
+    attributes:
+      label: Monitor model(s), and which one the game runs on
+      placeholder: e.g. ASUS XG27AQDMG (primary) + a 1080p side monitor
+  - type: textarea
+    id: edid
+    attributes:
+      label: Output of tools/check_edid.py (optional, very helpful)
+      description: Run `python tools/check_edid.py` from the repo. It shows what Unreal Engine thinks your monitor's native resolution is.
+      render: text
+  - type: input
+    id: mods
+    attributes:
+      label: Other mods installed
+      placeholder: e.g. StriveLabs, Unverum mods, none
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Windows, Linux / Steam Deck (Proton)]
+    validations:
+      required: true

@@ -1,7 +1,24 @@
-# GGSTNativeRes
+# GGSTNativeRes: Guilty Gear Strive 1080p-at-launch resolution fix
 
-A tiny mod for **Guilty Gear -Strive-** (Steam, PC) that stops the game from switching your monitor
-to **1920×1080 every time it starts**.
+**Does Guilty Gear Strive (GGST) start at 1080p and then switch to your real resolution a few
+seconds later?** This small mod for the Steam PC version fixes that. The game launches straight
+into your 1440p (or other) resolution and your chosen fullscreen or borderless mode, with no
+resolution switch, black flash or rearranged windows on your other monitors.
+
+**[⬇ Download the latest release](../../releases/latest)** · [Install](#install) ·
+[How it works](#how-it-works) · [FAQ](#faq) · [Evidence for every claim](VERIFICATION.md)
+
+## Symptoms this fixes
+
+- Guilty Gear Strive **launches in 1920×1080** (1080p) even though your settings say 2560×1440,
+  then switches to the correct resolution a few seconds later, around the time your save loads.
+- In **exclusive fullscreen** the monitor changes display mode twice at every launch: black flicker,
+  and windows or icons on other monitors get moved or resized.
+- Editing **`GameUserSettings.ini`**, making it read-only, the **`-ResX`/`-ResY` launch options**, or
+  switching to **borderless** in-game doesn't stop it.
+
+Tested at 2560×1440 on Windows 11. It should work at any resolution above 1080p (both causes are
+resolution-independent), but 4K and ultrawide haven't been tested yet. [Reports](../../issues) welcome.
 
 ## The problem
 
@@ -136,6 +153,48 @@ Beware of look-alike "Unverum Mod Manager 2026" repos; the original is TekkaGB's
 
 **Tested together:** StriveLabs v2-47 (UE4SS) on Windows. Both load, StriveLabs starts normally, and
 the resolution fixes still apply before the engine's boot-time resolution code runs.
+
+## FAQ
+
+### Why does Guilty Gear Strive start at 1080p?
+Two reasons, both before your settings are loaded. Strive's own code applies a built-in
+1920×1080 Fullscreen default before your save file loads. Separately, Unreal Engine 4 limits
+exclusive fullscreen to the "native" resolution it reads from your monitor's EDID, and some monitors
+report 1080p there. Details in [How it works](#how-it-works); proof in [VERIFICATION.md](VERIFICATION.md).
+
+### Why doesn't editing GameUserSettings.ini (or making it read-only) fix it?
+The game reads that file correctly. The 1080p comes from the two steps above, which happen after the
+file is read, so there's nothing in the file to fix.
+
+### Is it safe? Can I get banned?
+We found no client-side anti-cheat in Strive (no EasyAntiCheat, BattlEye or kernel driver). The mod
+only changes display-setup code at startup and never touches gameplay, input, netcode or save files.
+No problems have come up in matches played with it so far. We can't speak for what Arc System Works'
+servers check, though, so use it at your own risk like any mod.
+
+### Does it change gameplay, frame data or netcode?
+No. It changes 5 numbers and 1 jump instruction in the resolution setup code, then stops running.
+
+### Does it work with StriveLabs, Unverum and other mods?
+Yes. It loads as `xapofx1_5.dll`, a name no other popular Strive mod uses. It's tested together with
+StriveLabs, and Unverum's file cleanup doesn't touch it. See [Compatibility](#compatibility-with-other-mods).
+
+### What happens when Strive updates?
+If an update changes the code the mod patches, the mod skips that fix and the game behaves as
+normal (it never crashes the game over it). `GGSTNativeRes.log` will say "Not patched", and an
+updated release will follow.
+
+### Does it work on Steam Deck or Linux?
+Untested. Proton needs a launch option to load the DLL; see [Install](#install).
+
+### Do other Arc System Works games have this problem?
+Guilty Gear Xrd Rev 2 doesn't: it's an Unreal Engine 3 game without either cause (tested).
+Other games haven't been checked.
+
+### My antivirus flags the DLL
+Unsigned DLLs loaded under a system DLL's name sometimes trigger warnings. Check the SHA-256 hash
+against the one on the release page, or build it yourself: the build is reproducible, so your
+build will match the release byte for byte (see [Building](#building)).
 
 ## Building
 

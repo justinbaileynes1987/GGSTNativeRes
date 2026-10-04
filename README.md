@@ -126,6 +126,13 @@ same name overwrite each other. Names used by popular Strive mods:
 
 GGSTNativeRes doesn't hook anything, so it shouldn't interfere with mods that do.
 
+**Unverum** (the mod manager, [TekkaGB/Unverum](https://github.com/TekkaGB/Unverum), checked against
+its source, not tested): it installs `.pak` mods into `Content\Paks\~mods`, and its own UE4SS
+(`dwmapi.dll`, `ue4ss.dll`) into `Binaries\Win64` when a mod needs it. Each time it applies mods it
+deletes `opengl32.dll`, `patternsleuth_bind.dll`, `ue4ss.dll`, `UE4SS-settings.ini`, `dwmapi.dll`,
+`Win64\Mods` and `LogicMods`. None of those are GGSTNativeRes files, so it leaves this mod alone.
+Beware of look-alike "Unverum Mod Manager 2026" repos; the original is TekkaGB's.
+
 **Tested together:** StriveLabs v2-47 (UE4SS) on Windows. Both load, StriveLabs starts normally, and
 the resolution fixes still apply before the engine's boot-time resolution code runs.
 

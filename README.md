@@ -185,6 +185,12 @@ If an update changes the code the mod patches, the mod skips that fix and the ga
 normal (it never crashes the game over it). `GGSTNativeRes.log` will say "Not patched", and an
 updated release will follow.
 
+### Does it work with the Microsoft Store / Xbox app (Game Pass) version?
+Not yet. That version uses a different executable in a `WinGDK` folder instead of `Win64`, and the
+current release only activates inside the Steam executable, so installing it there does nothing.
+Support needs testing on that version first. If you have it and want to help, please
+[open an issue](../../issues).
+
 ### Does it work on Steam Deck or Linux?
 Untested. Proton needs a launch option to load the DLL; see [Install](#install).
 

@@ -188,8 +188,9 @@ updated release will follow.
 ### Does it work with the Microsoft Store / Xbox app (Game Pass) version?
 Not yet. That version uses a different executable in a `WinGDK` folder instead of `Win64`, and the
 current release only activates inside the Steam executable, so installing it there does nothing.
-Support needs testing on that version first. If you have it and want to help, please
-[open an issue](../../issues).
+Support needs testing on that version first. If you have it and want to help, run
+[`tools/xbox-check.ps1`](tools/xbox-check.ps1) (instructions at the top of the file; it only reads
+the game's executable) and paste its report into an [issue](../../issues).
 
 ### Does it work on Steam Deck or Linux?
 Untested. Proton needs a launch option to load the DLL; see [Install](#install).

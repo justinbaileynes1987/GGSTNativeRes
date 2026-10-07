@@ -122,7 +122,34 @@ foreach ($exe in $exes) {
 			         elseif ($all -contains $n) { "loaded on demand" } else { "not imported" }
 			Say ("    {0,-18} {1}" -f $n, $where)
 		}
-	} catch { Say "  Could not read imports: $($_.Exception.Message)" }
+	} catch {
+		Say "  Could not read imports: $($_.Exception.Message)"
+		Say "  (The Xbox app protects the game's .exe. Start the game, wait for the title screen and run this"
+		Say "   script again: the 'running game' section below then shows the same information.)"
+	}
+}
+
+# --- DLLs loaded by the running game (works even when the .exe itself can't be read) ----------
+Say ""
+$running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+	try { $_.Path -and ((Split-Path $_.Path -Parent) -eq (Resolve-Path $folder).Path) } catch { $false } })
+if (-not $running) {
+	Say "Running game: not running. (Start the game, wait for the title screen and run this script again"
+	Say "for the most useful report.)"
+}
+foreach ($p in $running) {
+	Say ("=== Running game: {0} (process {1})" -f (Split-Path $p.Path -Leaf), $p.Id)
+	try {
+		$mods = @($p.Modules)
+		Say ("  {0} DLLs loaded" -f ($mods.Count - 1))
+		Say "  DLL names relevant to mod loaders (and where they were loaded from):"
+		foreach ($n in "xapofx1_5.dll", "x3daudio1_7.dll", "sensapi.dll", "xinput1_3.dll", "dwmapi.dll", "winmm.dll", "version.dll", "dinput8.dll", "dxgi.dll", "d3d11.dll") {
+			$m = $mods | Where-Object { $_.ModuleName -ieq $n } | Select-Object -First 1
+			Say ("    {0,-18} {1}" -f $n, $(if ($m) { "loaded from $($m.FileName)" } else { "not loaded" }))
+		}
+		$names = $mods | Select-Object -Skip 1 | ForEach-Object { $_.ModuleName } | Sort-Object -Unique
+		Say ("  All loaded DLLs: {0}" -f ($names -join ', '))
+	} catch { Say "  Could not list the game's DLLs: $($_.Exception.Message)" }
 }
 
 # --- settings folder -------------------------------------------------------------------------

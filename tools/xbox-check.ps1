@@ -131,14 +131,20 @@ foreach ($exe in $exes) {
 
 # --- DLLs loaded by the running game (works even when the .exe itself can't be read) ----------
 Say ""
-$running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-	try { $_.Path -and ((Split-Path $_.Path -Parent) -eq (Resolve-Path $folder).Path) } catch { $false } })
+# Match by process NAME, not by path: Xbox app games run from a protected location that is mapped
+# into C:\XboxGames\...\Content, so the running process reports a different path (or none at all).
+$exeNames = @(Get-ChildItem $folder -Filter *.exe -File | ForEach-Object { $_.BaseName })
+$running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $exeNames -contains $_.ProcessName })
 if (-not $running) {
-	Say "Running game: not running. (Start the game, wait for the title screen and run this script again"
-	Say "for the most useful report.)"
+	Say ("Running game: no process named {0} found. (Start the game, wait for the title screen and run" -f (($exeNames | ForEach-Object { "$_.exe" }) -join ' / '))
+	Say "this script again for the most useful report.)"
+	$similar = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^RED-|GGST|STRIVE|GUILTY' })
+	if ($similar) { Say ("  Similar running processes: {0}" -f (($similar | ForEach-Object { "$($_.ProcessName) ($($_.Id))" }) -join ', ')) }
 }
 foreach ($p in $running) {
-	Say ("=== Running game: {0} (process {1})" -f (Split-Path $p.Path -Leaf), $p.Id)
+	Say ("=== Running game: {0}.exe (process {1})" -f $p.ProcessName, $p.Id)
+	$reported = try { $p.Path } catch { $null }
+	Say ("  Runs from: {0}" -f $(if ($reported) { $reported } else { "(Windows didn't report a path)" }))
 	try {
 		$mods = @($p.Modules)
 		Say ("  {0} DLLs loaded" -f ($mods.Count - 1))
@@ -149,7 +155,15 @@ foreach ($p in $running) {
 		}
 		$names = $mods | Select-Object -Skip 1 | ForEach-Object { $_.ModuleName } | Sort-Object -Unique
 		Say ("  All loaded DLLs: {0}" -f ($names -join ', '))
-	} catch { Say "  Could not list the game's DLLs: $($_.Exception.Message)" }
+	} catch {
+		Say "  Could not list the game's DLLs: $($_.Exception.Message)"
+		# Second opinion via tasklist, which uses a different Windows API path.
+		try {
+			$t = & tasklist.exe /m /fo csv /fi "PID eq $($p.Id)" 2>&1 | ConvertFrom-Csv
+			if ($t -and $t.Modules -and $t.Modules -ne 'N/A') { Say ("  tasklist reports these DLLs: {0}" -f $t.Modules) }
+			else { Say "  tasklist couldn't list them either." }
+		} catch { Say "  tasklist couldn't list them either." }
+	}
 }
 
 # --- settings folder -------------------------------------------------------------------------

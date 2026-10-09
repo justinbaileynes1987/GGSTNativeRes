@@ -92,9 +92,12 @@ The diagnostic build shows the requests behind this (experiment A, below).
 0xd40137:      cmp [r14+rcx*4], 0x780                  ; find the index of 1920x1080
 0xd40141:      cmp [r14+rcx*4+4], 0x438
 0xd40156:      mov [rdi + 0x66b9dc], r8d               ; store new fingerprint
+0xd4015d:      xor al, al                              ; window mode for this call = 0
 0xd4015f:      mov byte [rdi + 0x66b9e0], dl           ; resolution index = that entry
-0xd40165:      mov byte [rdi + 0x66b9e1], 0            ; window mode = 0
-...
+0xd40165:      mov byte [rdi + 0x66b9e1], 0            ; stored window mode = 0
+0xd40173:      jmp 0xd4017c                            ; (skips the next line)
+0xd40175:      movzx eax, byte [rdi + 0x66b9e1]        ; no-reset path: mode = stored mode
+0xd4018b:      movsx esi, al                           ; esi = mode for the calls below
 0xd4018e:      movsx rax, byte [rdi + 0x66b9e0]        ; look up width/height by index
 0xd401f2:      call 0x296f720                          ; GameUserSettings->SetScreenResolution(w,h)
 0xd401fc:      call 0x296eb70                          ; GameUserSettings->SetFullscreenMode(mode)
@@ -106,9 +109,12 @@ What this establishes:
   mode list. The fingerprint is `sum(width + height) + count`.
 - On a mismatch, the default is the **1920×1080** entry (or the largest mode if the monitor can't
   do 1080p), with **window mode 0**.
-- Window mode 0 = Fullscreen: the value is passed straight to `SetFullscreenMode` and
+- Window mode 0 = Fullscreen: `esi` is passed to `SetFullscreenMode` and
   `RequestResolutionChange`, and logged requests show `mode 0` = exclusive fullscreen,
   `mode 1` = borderless (experiment F).
+- On the reset path the mode is set **twice**: in `al` (used for this call) and in the stored byte
+  `+0x66b9e1` (kept for later calls). The mod patches both (`xor al, al` → `mov al, mode`, same
+  size). 1.0.0 only patched the stored byte; see §7, finding 10.
 - The list entries are 12 bytes; the first two fields are width and height (compared with
   1920/1080). That the third is the refresh rate is an **INFERENCE** (it matches UE's
   `FScreenResolutionRHI` layout).
@@ -273,13 +279,14 @@ RequestResolutionChange(2560, 1440, mode 0) from exe+0xd4020d
 
 | README claim | Evidence |
 |---|---|
-| No function hooks or detours; 5 constants and 1 jump | **CODE** ([`src/main.cpp`](src/main.cpp)): Fix 1 writes four `int32` values (width and height in two compare instructions) and one byte (window mode); Fix 2 writes one byte (`75` → `EB`). That's all the release build writes to the game's memory. The hook in the diagnostic build is behind `#ifdef GGSTNR_DIAG`. |
+| No function hooks or detours; 5 constants and 2 instructions | **CODE** ([`src/main.cpp`](src/main.cpp)): Fix 1 writes four `int32` values (width and height in two compare instructions), one byte (stored window mode) and two bytes (`32 C0` `xor al, al` → `B0 xx` `mov al, mode`); Fix 2 writes one byte (`75` → `EB`). That's all the release build writes to the game's memory. The hook in the diagnostic build is behind `#ifdef GGSTNR_DIAG`. |
 | ...then stops running | **CODE.** The patch thread exits after patching. Nothing else is created. |
 | Fails safe | **CODE.** Fix 1 requires each of its three patterns to match exactly once, in order, within 0x80 bytes. Fix 2 requires one match whose jump byte is `75`. Otherwise the fix is skipped and logged. These checks verify the code *looks* the same; see the README caveat. |
-| Only runs inside Strive | **CODE.** `DllMain` checks the host exe is `GGST-Win64-Shipping.exe`. |
+| Only runs inside Strive | **CODE.** `DllMain` checks the host exe is `GGST-Win64-Shipping.exe` (Steam) or `RED-WinGDK-Shipping.exe` (Microsoft Store). |
+| Microsoft Store version: loads as `dsound.dll` and works | **DATA + TESTED.** `tools/xbox-check.ps1` on a tester's PC: the game runs `RED-WinGDK-Shipping.exe` from `C:\Program Files\WindowsApps\...\RED\Binaries\WinGDK\` and its loaded modules include `DSOUND.dll` but not `xapofx1_5.dll`. `dsound.dll` isn't a KnownDLL, and the Steam exe imports it too. **TESTED on Steam:** the `dsound.dll` build loads from the game folder and patches; the exports we called through it (device enumeration, `DirectSoundCreate8`, `DirectSoundCaptureCreate8`, `GetDeviceID`, `DllCanUnloadNow`, and a call by ordinal) returned the same results as Windows' own `dsound.dll`; all 12 exports are forwarded with the original signatures and ordinals (CODE). **TESTED on the Microsoft Store version** by the tester (1.1.0-test.1 diagnostic build, 3840×2160 Borderless): all four patterns matched once, both fixes applied, every resolution request was 3840×2160, no 1080p switch seen. That run also exposed finding 10 (a `mode 0` request). The final 1.1.0 code for finding 10 is **TESTED on Steam only**; on the Microsoft Store version its log line will show whether the `xor` was found. The exe there can't be read (Windows protects the `WindowsApps` folder), so we couldn't disassemble it. |
 | Loads as a proxy for `xapofx1_5.dll` and forwards `CreateFX` | **CODE + TESTED.** The exe statically imports `xapofx1_5.dll`, which isn't a Windows KnownDLL, so the game folder is searched first. With the mod installed, the game's module list showed both `...\RED\Binaries\Win64\XAPOFX1_5.dll` (the mod) and `C:\WINDOWS\system32\xapofx1_5.dll` (the real one, loaded by the mod). |
 | Patches land before the engine's boot code | **TESTED.** Three runs with StriveLabs installed: patches applied 925–998 ms before the engine preload. Most of the time before patching is spent waiting for Steam's DRM to decrypt the code (see `tools/NOTES.md`). |
-| `Mode=-1` = same as your in-game setting | **TESTED.** After choosing Borderless in-game, `GameUserSettings.ini` had `FullscreenMode=1`, and the mod logged `mode 1 (Borderless)`. |
+| `Mode=-1` = same as your in-game setting | **TESTED.** After choosing Borderless in-game, `GameUserSettings.ini` had `FullscreenMode=1`, and the mod logged `mode 1 (Borderless)`. That the game then *requests* that mode at boot was only tested in 1.1.0 (finding 10): diagnostic build on Steam, mod `Mode=1` and `Mode=2`: the game's first call requested `2560, 1440, mode 1` and `mode 2` respectively (was `mode 0` with 1.0.0's patch). |
 | No client-side anti-cheat that we could find | **DATA.** No EasyAntiCheat, BattlEye or other anti-cheat files, and no `.sys` drivers, in the install folder; none in the game's loaded module list. (The exe contains the text "AntiCheat" once; we didn't trace what uses it, but no anti-cheat module is shipped or loaded.) Server-side checks are unknown. |
 | Compatibility table | **DATA.** StriveLabs: file names in its v2-47 zip. UE4SS: its install docs. GGST-Enhancer: its README. **TESTED** together with StriveLabs v2-47: both load, StriveLabs' frame bar and hitboxes work, both fixes apply. |
 | Linux / Proton line | **Untested.** It says so in the README. |
@@ -299,6 +306,7 @@ Found while writing this document, and fixed:
 | 7 | **Bug:** if a game update broke one of the patterns the scan waits for, the patch thread kept scanning at raised priority for 30 s during startup. | Gives up 2 s after the first pattern appears, or after 10 s overall, and backs off to slow polling after 3 s. |
 | 8 | **Bug (tool):** `check_edid.py` read past the end of the timing list in CTA-861 blocks and printed a bogus `1077x132 @ 1319 Hz` mode. | Stops at the end-of-list marker. |
 | 9 | Earlier in development, the README claimed `sensapi.dll` didn't conflict with other mods. StriveLabs ships its own `sensapi.dll`. | Switched to `xapofx1_5.dll` (in an earlier commit). |
+| 10 | **Bug (found after 1.0.0):** fix 1 patched the *stored* window mode, but the reset path requests the resolution with the mode in `al` (`xor al, al`, §3.1), so Borderless/Windowed players still got one exclusive-Fullscreen request at their resolution. Missed because every 1.0.0 test used Fullscreen, and the "`Mode=-1`" row above only checked the log line. Found in a Microsoft Store tester's diagnostic log (`3840, 2160, mode 0` with a Borderless target). | 1.1.0 also patches the `xor`. Verified on Steam with the diagnostic build in Borderless and Windowed. |
 
 Still **not** verified:
 - That the same reset happens after a monitor or driver change (§3.2): code inference only.

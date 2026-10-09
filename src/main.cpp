@@ -274,10 +274,14 @@ template <typename T> static void Write(uint8_t* at, T value)
 //   precheck:  cmp [r14+rcx*4], 1920 / jb / cmp [r14+rcx*4+4], 1080 / jb   - is the largest mode >= default?
 //   loop:      cmp [r14+rcx*4], 1920 / jne / cmp [r14+rcx*4+4], 1080 / je  - find the default's index
 //   modestore: mov [rdi+X], dl / mov byte [rdi+Y], 0 / mov byte [rdi+Z], 0  - window mode = Fullscreen
+// The stored byte (Y) is what the saved settings hold, but this path then jumps past the reload of
+// Y and requests the resolution with the mode still in al, which the "xor al, al" right before
+// modestore set to 0. So both need patching: the store, and the xor (-> "mov al, mode", same size).
 static const char* kPrecheck  = "41 81 3C 8E 80 07 00 00 72 ?? 41 81 7C 8E 04 38 04 00 00 72";
 static const char* kLoop      = "41 81 3C 8E 80 07 00 00 75 ?? 41 81 7C 8E 04 38 04 00 00 74";
 static const char* kModeStore = "88 97 ?? ?? ?? ?? C6 87 ?? ?? ?? ?? 00 C6 87 ?? ?? ?? ?? 00 EB";
 constexpr int kWidthOffset = 4, kHeightOffset = 15, kModeOffset = 12;
+constexpr int kModeRegOffset = -2;  // xor al, al (32 C0) -> mov al, imm8 (B0 xx)
 
 // Fix 2 - Unreal's UGameEngine::DetermineGameWindowResolution (used by PreloadResolutionSettings at
 // boot). In Fullscreen it caps the resolution at the primary monitor's "native" size, which UE4
@@ -454,7 +458,10 @@ static DWORD WINAPI PatchThread(LPVOID)
 		Write<int32_t>(l + kWidthOffset, width);
 		Write<int32_t>(l + kHeightOffset, height);
 		Write<uint8_t>(m + kModeOffset, (uint8_t)mode);
+		const bool modeReg = m[kModeRegOffset] == 0x32 && m[kModeRegOffset + 1] == 0xC0;
+		if (modeReg) Write<uint16_t>(m + kModeRegOffset, (uint16_t)(0xB0 | mode << 8));
 		Log("Patched boot default: 1920x1080 Fullscreen -> %dx%d mode %d", width, height, mode);
+		if (!modeReg) Log("Boot default: window-mode register not where expected - resolution patched, mode may still be Fullscreen.");
 	}
 
 	// Fix 2.

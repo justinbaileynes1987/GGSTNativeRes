@@ -32,6 +32,12 @@ FSystemResolution::RequestResolutionChange(w, h, windowMode)
 
 The same reset fires whenever the monitor's mode list changes (new monitor, driver update).
 
+In the binary, the reset path sets the mode twice: `xor al, al` (the value the request actually
+uses, kept in `al` because the reset path jumps past the reload of the stored byte) and
+`mov byte [rdi+0x66b9e1], 0` (the stored setting). Patching only the stored byte fixes the
+resolution but still requests Fullscreen; that went unnoticed until a Borderless user's log
+(1.1.0-test.1) showed `mode 0` on the first call. 1.1.0 also rewrites the `xor` as `mov al, mode`.
+
 The "list" is the RHI's available display modes (12-byte entries: width, height, refresh rate, i.e.
 `FScreenResolutionRHI`). The fingerprint is `sum(width + height) + count`. The save stores an *index*
 into this list (byte at `+0x66b9e0` of the settings object), the window mode (`+0x66b9e1`) and the
@@ -82,6 +88,13 @@ measured ~1.6 s total on a first UE4SS launch; per-pass cost wasn't logged then.
 Originally `sensapi.dll`, but StriveLabs ships its own `sensapi.dll` (plus `dwmapi.dll` and
 `xinput1_3.dll`) into the same folder. Now `xapofx1_5.dll`: statically imported by the exe, not a
 KnownDLL, one export (`CreateFX`), and not used by any known mod loader.
+
+The Microsoft Store / Xbox app build (`RED-WinGDK-Shipping.exe`, in `RED\Binaries\WinGDK`)
+doesn't load `xapofx1_5.dll`. Its loaded-module list (from `xbox-check.ps1` on a tester's PC)
+showed `DSOUND.dll`, which is also not a KnownDLL, is imported by the Steam exe too, and isn't used
+by any known Strive mod. So the Xbox variant is built as `dsound.dll` (`build.bat xbox`), forwarding
+all 12 exports at their original ordinals. The game's exe there can't be read (WindowsApps ACLs),
+so its code was only checked through the mod's own log.
 
 ## Things that don't work (tested)
 

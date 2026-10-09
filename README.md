@@ -1,7 +1,8 @@
 # GGSTNativeRes: Guilty Gear Strive 1080p-at-launch resolution fix
 
 **Does Guilty Gear Strive (GGST) start at 1080p and then switch to your real resolution a few
-seconds later?** This small mod for the Steam PC version fixes that. The game launches straight
+seconds later?** This small mod for the PC version (Steam, and the Microsoft Store / Xbox app /
+PC Game Pass version) fixes that. The game launches straight
 into your 1440p (or other) resolution and your chosen fullscreen or borderless mode, with no
 resolution switch, black flash or rearranged windows on your other monitors.
 
@@ -17,8 +18,9 @@ resolution switch, black flash or rearranged windows on your other monitors.
 - Editing **`GameUserSettings.ini`**, making it read-only, the **`-ResX`/`-ResY` launch options**, or
   switching to **borderless** in-game doesn't stop it.
 
-Tested at 2560×1440 on Windows 11. It should work at any resolution above 1080p (both causes are
-resolution-independent), but 4K and ultrawide haven't been tested yet. [Reports](../../issues) welcome.
+Tested at 2560×1440 on Windows 11 (Steam), and at 3840×2160 by a player on the Microsoft Store
+version. It should work at any resolution above 1080p (both causes are resolution-independent);
+ultrawide hasn't been tested yet. [Reports](../../issues) welcome.
 
 ## The problem
 
@@ -39,17 +41,33 @@ With this mod the game starts in your real resolution and window mode, and nothi
 
 ## Install
 
-1. Download `GGSTNativeRes-<version>.zip` from the [Releases](../../releases) page, or from the
-   official [GameBanana page](https://gamebanana.com/mods/723773) (same file). Check its SHA-256
-   hash against the one listed on the release.
-2. Put `xapofx1_5.dll` from the zip in the folder that contains `GGST-Win64-Shipping.exe`:
+Download from the [Releases](../../releases) page, or from the official
+[GameBanana page](https://gamebanana.com/mods/723773) (same files). Check the SHA-256 hash against
+the one listed on the release. There's one zip per version of the game.
+
+**Steam:** `GGSTNativeRes-<version>-steam.zip`
+
+1. Put `xapofx1_5.dll` from the zip in the folder that contains `GGST-Win64-Shipping.exe`:
    ```
    ...\steamapps\common\GUILTY GEAR STRIVE\RED\Binaries\Win64\
    ```
    (In Steam, right-click the game, then **Manage → Browse local files** to find it.)
-3. Launch the game normally.
+2. Launch the game normally.
 
 **Uninstall:** delete `xapofx1_5.dll`, `GGSTNativeRes.ini` and `GGSTNativeRes.log` from that folder.
+
+**Microsoft Store / Xbox app / PC Game Pass:** `GGSTNativeRes-<version>-xbox.zip`
+
+1. Extract the zip into the game's install folder, e.g. `C:\XboxGames\GUILTY GEAR STRIVE\`, so that
+   `dsound.dll` ends up in
+   ```
+   C:\XboxGames\GUILTY GEAR STRIVE\Content\RED\Binaries\WinGDK\
+   ```
+   (the same place StriveLabs' Xbox files go).
+2. Launch the game normally.
+
+**Uninstall:** delete `dsound.dll`, `GGSTNativeRes.ini` and `GGSTNativeRes.log` from the `WinGDK`
+folder. If the game folder isn't writable, the log is in `%LOCALAPPDATA%\GGST\Saved` instead.
 
 **Linux / Steam Deck (Proton), untested:** Proton won't load the DLL unless told to. Add this to the
 game's Steam launch options:
@@ -113,8 +131,8 @@ If that's your setup, set `FixFullscreenCap=0`.
 
 What the mod does and doesn't do:
 
-- **No function hooks or detours.** It changes 5 constants and 1 jump instruction in the game's
-  memory at startup, then stops running.
+- **No function hooks or detours.** It changes 5 constants and 2 same-size instructions in the
+  game's memory at startup (one sets the window mode, one is a jump), then stops running.
 - **Touches nothing else.** Input, netcode, gameplay, saves and game files are all untouched.
 - **Fails safe.** It searches for the exact code it expects and applies each fix only if its patterns
   are found exactly once, in the expected layout. If a game update changes that code, that fix is
@@ -124,9 +142,11 @@ What the mod does and doesn't do:
   impossible.)
 - **Only runs inside Strive.** It does nothing if loaded by any other program.
 
-It loads as a proxy for `xapofx1_5.dll`, a DirectX audio-effects DLL the game imports. The game
-loads DLLs from its own folder first, and the mod passes the DLL's single function, `CreateFX`,
-through to the real copy in `System32`.
+On Steam it loads as a proxy for `xapofx1_5.dll`, a DirectX audio-effects DLL the game imports. The
+game loads DLLs from its own folder first, and the mod passes the DLL's single function, `CreateFX`,
+through to the real copy in `System32`. The Microsoft Store version doesn't load that DLL, so its
+build loads as a proxy for `dsound.dll` (DirectSound) instead and passes all 12 of its functions
+through to the real one. The patching code is the same in both.
 
 Strive has no client-side anti-cheat that we could find: no EasyAntiCheat, BattlEye or kernel
 driver in the install folder or loaded in the game. What its servers check is unknown.
@@ -141,7 +161,7 @@ same name overwrite each other. Names used by popular Strive mods:
 | StriveLabs | `dwmapi.dll`, `xinput1_3.dll`, `sensapi.dll` |
 | UE4SS-based mods | `dwmapi.dll` (sometimes `xinput1_3.dll`) |
 | GGST-Enhancer | `UMPDC.dll` |
-| **GGSTNativeRes** | **`xapofx1_5.dll`** |
+| **GGSTNativeRes** | **`xapofx1_5.dll`** (Steam), **`dsound.dll`** (Microsoft Store) |
 
 GGSTNativeRes doesn't hook anything, so it shouldn't interfere with mods that do.
 
@@ -163,6 +183,11 @@ Two reasons, both before your settings are loaded. Strive's own code applies a b
 exclusive fullscreen to the "native" resolution it reads from your monitor's EDID, and some monitors
 report 1080p there. Details in [How it works](#how-it-works); proof in [VERIFICATION.md](VERIFICATION.md).
 
+### I play in Borderless. Do I still need this?
+Yes: without it the game still starts in 1080p Fullscreen. (Version 1.0.0 had a gap here: Borderless
+and Windowed players got the right resolution at boot, but the game still briefly entered exclusive
+Fullscreen at that resolution before the save loaded. 1.1.0 fixes that.)
+
 ### Why doesn't editing GameUserSettings.ini (or making it read-only) fix it?
 The game reads that file correctly. The 1080p comes from the two steps above, which happen after the
 file is read, so there's nothing in the file to fix.
@@ -174,11 +199,12 @@ No problems have come up in matches played with it so far. We can't speak for wh
 servers check, though, so use it at your own risk like any mod.
 
 ### Does it change gameplay, frame data or netcode?
-No. It changes 5 numbers and 1 jump instruction in the resolution setup code, then stops running.
+No. It changes 5 numbers and 2 instructions in the resolution setup code, then stops running.
 
 ### Does it work with StriveLabs, Unverum and other mods?
-Yes. It loads as `xapofx1_5.dll`, a name no other popular Strive mod uses. It's tested together with
-StriveLabs, and Unverum's file cleanup doesn't touch it. See [Compatibility](#compatibility-with-other-mods).
+Yes. It loads as `xapofx1_5.dll` (Steam) or `dsound.dll` (Microsoft Store), names no other popular
+Strive mod uses. It's tested together with StriveLabs on Steam, and Unverum's file cleanup doesn't
+touch it. See [Compatibility](#compatibility-with-other-mods).
 
 ### What happens when Strive updates?
 If an update changes the code the mod patches, the mod skips that fix and the game behaves as
@@ -186,11 +212,11 @@ normal (it never crashes the game over it). `GGSTNativeRes.log` will say "Not pa
 updated release will follow.
 
 ### Does it work with the Microsoft Store / Xbox app (Game Pass) version?
-Not yet. That version uses a different executable in a `WinGDK` folder instead of `Win64`, and the
-current release only activates inside the Steam executable, so installing it there does nothing.
-Support needs testing on that version first. If you have it and want to help, run
-[`tools/xbox-check.ps1`](tools/xbox-check.ps1) (instructions at the top of the file; it only reads
-the game's executable) and paste its report into an [issue](../../issues).
+Yes, since 1.1.0. Use the `-xbox.zip`; see [Install](#install). That version runs a different
+executable (`RED-WinGDK-Shipping.exe`) that doesn't load the DLL the Steam build uses, so it has its
+own build, loaded as `dsound.dll`. A player on that version confirmed both fixes apply and the
+1080p switch is gone (at 3840×2160). If it doesn't work for you, open an [issue](../../issues) with
+your `GGSTNativeRes.log` and the report from [`tools/xbox-check.ps1`](tools/xbox-check.ps1).
 
 ### Does it work on Steam Deck or Linux?
 Untested. Proton needs a launch option to load the DLL; see [Install](#install).
@@ -209,17 +235,18 @@ build will match the release byte for byte (see [Building](#building)).
 Requires Visual Studio 2022 or newer with the **Desktop development with C++** workload.
 
 ```
-build.bat          release build   -> build\xapofx1_5.dll
-build.bat diag     diagnostic build -> build\diag\xapofx1_5.dll
+build.bat           Steam release build            -> build\xapofx1_5.dll
+build.bat xbox      Microsoft Store release build  -> build\xbox\dsound.dll
+build.bat diag      diagnostic build (add xbox for the Microsoft Store one)
 ```
 
-`release.ps1` builds the release and packages `dist\GGSTNativeRes-<version>.zip` plus
-`dist\SHA256SUMS.txt`.
+`release.ps1` builds both and packages `dist\GGSTNativeRes-<version>-steam.zip`,
+`dist\GGSTNativeRes-<version>-xbox.zip` and `dist\SHA256SUMS.txt`.
 
 **Reproducible builds:** the build uses `/Brepro`, so the same source and compiler always produce a
 byte-identical DLL. To check that a release DLL was built from this source, check out the release's
 tag, run `build.bat` with the same MSVC toolset (listed in the release notes), and compare the
-SHA-256 of `build\xapofx1_5.dll` with the published one. A different compiler version will produce
+SHA-256 of `build\xapofx1_5.dll` (or `build\xbox\dsound.dll`) with the published one. A different compiler version will produce
 a different (but equivalent) binary.
 
 The diagnostic build also logs every resolution change the game requests (with the calling

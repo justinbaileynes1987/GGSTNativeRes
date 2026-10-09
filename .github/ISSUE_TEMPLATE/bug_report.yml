@@ -11,8 +11,9 @@ body:
     attributes:
       label: GGSTNativeRes.log
       description: |
-        In the game's `RED\Binaries\Win64` folder (next to `xapofx1_5.dll`). Paste the whole file.
-        If there's no log file, the mod didn't load. Say so here.
+        Next to the mod's DLL: `RED\Binaries\Win64` (Steam) or `Content\RED\Binaries\WinGDK`
+        (Microsoft Store / Xbox app; if it isn't there, look in `%LOCALAPPDATA%\GGST\Saved`).
+        Paste the whole file. If there's no log file, the mod didn't load. Say so here.
       render: text
     validations:
       required: true
@@ -50,6 +51,6 @@ body:
     id: platform
     attributes:
       label: Platform
-      options: [Windows, Linux / Steam Deck (Proton)]
+      options: [Windows (Steam), Windows (Microsoft Store / Xbox app), Linux / Steam Deck (Proton)]
     validations:
       required: true

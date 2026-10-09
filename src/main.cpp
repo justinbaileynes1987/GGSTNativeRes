@@ -34,6 +34,7 @@
 static HMODULE g_self;
 static wchar_t g_dir[MAX_PATH];  // folder containing this DLL
 static FILE* g_log;
+static bool g_isStoreVersion;  // running in RED-WinGDK-Shipping.exe (Microsoft Store / Xbox app)
 
 static void Log(const char* fmt, ...)
 {
@@ -45,22 +46,66 @@ static void Log(const char* fmt, ...)
 }
 
 // ---------------------------------------------------------------------------------------------
-// xapofx1_5.dll forwarding
+// Proxy DLL forwarding
 // ---------------------------------------------------------------------------------------------
+// The same mod is built under two names (see build.bat):
+//   xapofx1_5.dll - Steam version (GGST-Win64-Shipping.exe imports it; the Microsoft Store build doesn't)
+//   dsound.dll    - Microsoft Store / Xbox app version (RED-WinGDK-Shipping.exe loads it; the Steam exe
+//                   imports it too, which is how this variant is tested)
+// Every export is forwarded to the real copy in System32.
+static HMODULE RealSystemDll(const wchar_t* name)
+{
+	wchar_t path[MAX_PATH];
+	GetSystemDirectoryW(path, MAX_PATH);
+	wcscat_s(path, L"\\");
+	wcscat_s(path, name);
+	return LoadLibraryW(path);
+}
+
+#ifdef GGSTNR_PROXY_DSOUND
+#include <dsound.h>
+static HMODULE RealDsound() { static HMODULE m = RealSystemDll(L"dsound.dll"); return m; }
+
+// Each wrapper uses the exact signature from dsound.h / combaseapi.h (decltype of the SDK
+// declaration), so any number of arguments is passed through correctly.
+#ifdef GGSTNR_DIAG
+#define DSOUND_TRACE(name, hr)                                                                      \
+	static bool traced = false;                                                                     \
+	if (!traced) { traced = true; Log("DIAG: dsound " #name " forwarded, returned 0x%08lX", (unsigned long)(hr)); }
+#else
+#define DSOUND_TRACE(name, hr)
+#endif
+#define DSOUND_FORWARD(name, fail, params, args)                                                   \
+	extern "C" HRESULT WINAPI Proxy_##name params                                                   \
+	{                                                                                               \
+		static auto fn = RealDsound()                                                               \
+			? reinterpret_cast<decltype(&::name)>(GetProcAddress(RealDsound(), #name)) : nullptr;   \
+		HRESULT hr = fn ? fn args : (fail);                                                         \
+		DSOUND_TRACE(name, hr)                                                                      \
+		return hr;                                                                                  \
+	}
+
+DSOUND_FORWARD(DirectSoundCreate, E_NOTIMPL, (LPCGUID g, LPDIRECTSOUND* ds, LPUNKNOWN o), (g, ds, o))
+DSOUND_FORWARD(DirectSoundEnumerateA, E_NOTIMPL, (LPDSENUMCALLBACKA cb, LPVOID ctx), (cb, ctx))
+DSOUND_FORWARD(DirectSoundEnumerateW, E_NOTIMPL, (LPDSENUMCALLBACKW cb, LPVOID ctx), (cb, ctx))
+DSOUND_FORWARD(DirectSoundCaptureCreate, E_NOTIMPL, (LPCGUID g, LPDIRECTSOUNDCAPTURE* c, LPUNKNOWN o), (g, c, o))
+DSOUND_FORWARD(DirectSoundCaptureEnumerateA, E_NOTIMPL, (LPDSENUMCALLBACKA cb, LPVOID ctx), (cb, ctx))
+DSOUND_FORWARD(DirectSoundCaptureEnumerateW, E_NOTIMPL, (LPDSENUMCALLBACKW cb, LPVOID ctx), (cb, ctx))
+DSOUND_FORWARD(GetDeviceID, E_NOTIMPL, (LPCGUID src, LPGUID dst), (src, dst))
+DSOUND_FORWARD(DirectSoundFullDuplexCreate, E_NOTIMPL,
+	(LPCGUID cap, LPCGUID ren, LPCDSCBUFFERDESC cdesc, LPCDSBUFFERDESC rdesc, HWND hwnd, DWORD level,
+	 LPDIRECTSOUNDFULLDUPLEX* fd, LPDIRECTSOUNDCAPTUREBUFFER8* cbuf, LPDIRECTSOUNDBUFFER8* rbuf, LPUNKNOWN o),
+	(cap, ren, cdesc, rdesc, hwnd, level, fd, cbuf, rbuf, o))
+DSOUND_FORWARD(DirectSoundCreate8, E_NOTIMPL, (LPCGUID g, LPDIRECTSOUND8* ds, LPUNKNOWN o), (g, ds, o))
+DSOUND_FORWARD(DirectSoundCaptureCreate8, E_NOTIMPL, (LPCGUID g, LPDIRECTSOUNDCAPTURE8* c, LPUNKNOWN o), (g, c, o))
+DSOUND_FORWARD(DllGetClassObject, CLASS_E_CLASSNOTAVAILABLE, (REFCLSID c, REFIID i, LPVOID* p), (c, i, p))
+DSOUND_FORWARD(DllCanUnloadNow, S_FALSE, (void), ())
+#else
+static HMODULE RealXapofx() { static HMODULE m = RealSystemDll(L"xapofx1_5.dll"); return m; }
+
 // xapofx1_5.dll (DirectX June 2010 redist, installed by Steam with the game) has a single export.
 // The wrapper takes 4 pointer-sized args so rcx/rdx/r8/r9 pass through untouched whatever the
 // real signature is (CreateFX takes 2 in 1.5, up to 4 in later XAPOFX versions).
-static HMODULE RealXapofx()
-{
-	static HMODULE real = [] {
-		wchar_t path[MAX_PATH];
-		GetSystemDirectoryW(path, MAX_PATH);
-		wcscat_s(path, L"\\xapofx1_5.dll");
-		return LoadLibraryW(path);
-	}();
-	return real;
-}
-
 extern "C" HRESULT __cdecl Proxy_CreateFX(void* a, void* b, void* c, void* d)
 {
 	using CreateFX_t = HRESULT(__cdecl*)(void*, void*, void*, void*);
@@ -68,6 +113,7 @@ extern "C" HRESULT __cdecl Proxy_CreateFX(void* a, void* b, void* c, void* d)
 	if (!fn) return E_NOTIMPL;
 	return fn(a, b, c, d);
 }
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // Settings
@@ -135,7 +181,9 @@ static std::optional<int> GameSavedWindowMode()
 {
 	wchar_t local[MAX_PATH];
 	if (!GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH)) return std::nullopt;
-	std::wstring ini = std::wstring(local) + L"\\GGST\\Saved\\Config\\WindowsNoEditor\\GameUserSettings.ini";
+	// The Steam build keeps its settings under WindowsNoEditor, the Microsoft Store build under WinGDK.
+	std::wstring ini = std::wstring(local) + L"\\GGST\\Saved\\Config\\" +
+		(g_isStoreVersion ? L"WinGDK" : L"WindowsNoEditor") + L"\\GameUserSettings.ini";
 	int v = GetPrivateProfileIntW(L"/Script/Engine.GameUserSettings", L"FullscreenMode", -1, ini.c_str());
 	if (v < 0 || v > 2) return std::nullopt;
 	return v;
@@ -312,8 +360,25 @@ static DWORD WINAPI PatchThread(LPVOID)
 	if (s.log) {
 		std::wstring logPath = std::wstring(g_dir) + L"\\GGSTNativeRes.log";
 		g_log = _wfsopen(logPath.c_str(), L"w", _SH_DENYNO);  // shared, so it can be read while the game runs
+		if (!g_log) {
+			// Game folder not writable (possible with the Xbox app's protected install): use the
+			// game's own %LOCALAPPDATA%\GGST\Saved folder instead.
+			wchar_t local[MAX_PATH];
+			if (GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH)) {
+				logPath = std::wstring(local) + L"\\GGST\\Saved\\GGSTNativeRes.log";
+				g_log = _wfsopen(logPath.c_str(), L"w", _SH_DENYNO);
+			}
+		}
 	}
-	Log("GGSTNativeRes " GGSTNR_VERSION_STRING " loaded");
+	wchar_t exePath[MAX_PATH];
+	GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+	Log("GGSTNativeRes " GGSTNR_VERSION_STRING " loaded (%s build) in %ls",
+#ifdef GGSTNR_PROXY_DSOUND
+	    "dsound.dll",
+#else
+	    "xapofx1_5.dll",
+#endif
+	    exePath);
 #ifdef GGSTNR_DIAG
 	if (HANDLE t = CreateThread(nullptr, 0, DisplayWatchThread, nullptr, 0, nullptr)) CloseHandle(t);
 #endif
@@ -416,12 +481,22 @@ BOOL WINAPI DllMain(HMODULE module, DWORD reason, LPVOID)
 		DisableThreadLibraryCalls(module);
 		GetModuleFileNameW(module, g_dir, MAX_PATH);
 		if (wchar_t* slash = wcsrchr(g_dir, L'\\')) *slash = 0;
-		// Only act inside the game itself.
+		// Only act inside the game itself: the Steam executable, or the Microsoft Store / Xbox app one.
+		// (Exact names rather than "same folder": the Xbox app maps the install folder, so paths differ.)
 		wchar_t exe[MAX_PATH];
 		GetModuleFileNameW(nullptr, exe, MAX_PATH);
 		const wchar_t* name = wcsrchr(exe, L'\\');
-		if (name && _wcsicmp(name + 1, L"GGST-Win64-Shipping.exe") == 0)
-			if (HANDLE t = CreateThread(nullptr, 0, PatchThread, nullptr, 0, nullptr)) CloseHandle(t);
+		if (name && (_wcsicmp(name + 1, L"GGST-Win64-Shipping.exe") == 0 ||
+		             _wcsicmp(name + 1, L"RED-WinGDK-Shipping.exe") == 0)) {
+			g_isStoreVersion = _wcsicmp(name + 1, L"RED-WinGDK-Shipping.exe") == 0;
+			// If both variants are installed (e.g. xapofx1_5.dll and dsound.dll, which the Steam exe
+			// both loads), only the first one to load does anything. The handle is kept open on purpose.
+			wchar_t mutexName[64];
+			swprintf_s(mutexName, L"Local\\GGSTNativeRes-%lu", GetCurrentProcessId());
+			HANDLE once = CreateMutexW(nullptr, FALSE, mutexName);
+			if (once && GetLastError() != ERROR_ALREADY_EXISTS)
+				if (HANDLE t = CreateThread(nullptr, 0, PatchThread, nullptr, 0, nullptr)) CloseHandle(t);
+		}
 	}
 	return TRUE;
 }
